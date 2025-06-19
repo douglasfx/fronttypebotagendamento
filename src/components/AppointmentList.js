@@ -171,7 +171,7 @@ function AppointmentList({ user }) {
               <tr key={app.id}>
                 <td style={{ border: '1px solid #ddd', padding: '8px' }}>{app.phone_number}</td>
                 <td style={{ border: '1px solid #ddd', padding: '8px' }}>{app.message_text}</td>
-                <td style={{ border: '1px solid #ddd', padding: '8px' }}>{new Date(app.scheduled_for).toLocaleString('pt-BR')}</td>
+                <td style={{ border: '1px solid #ddd', padding: '8px' }}>{new Date(new Date(app.scheduled_for).setHours(new Date(app.scheduled_for).getHours() + 3)).toLocaleString('pt-BR')}</td>
                 <td style={{ border: '1px solid #ddd', padding: '8px' }}>{app.status}</td>
                 <td style={{ border: '1px solid #ddd', padding: '8px' }}>
                   {app.status !== 'cancelado' && (
