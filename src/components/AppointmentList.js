@@ -5,6 +5,8 @@ function AppointmentList({ user }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState(''); // Novo estado para o termo de busca
+  const [selectedAppointments, setSelectedAppointments] = useState([]); // Novo estado para agendamentos selecionados
 
   // Log para quando o componente renderiza e qual usuário ele tem
   //console.log('[AppointmentList] Renderizando. User ID:', user ? user.id : 'Nenhum');
@@ -27,13 +29,15 @@ function AppointmentList({ user }) {
 
     setLoading(true); // Definir loading no início da execução real do fetch
     setError(null);
-    let { data, error: fetchError } = await supabase
+    let query = supabase
       .from('scheduled_messages')
       .select('*')
       .eq('user_id', user.id) // Filtra pelo ID do usuário logado
       .or( // Mantém a lógica de status e data, mas agora dentro do escopo do usuário
         `status.eq.pending,and(status.eq.cancelado,scheduled_for.gte.${startOfToday},scheduled_for.lt.${startOfTomorrow})`
       );
+
+    let { data, error: fetchError } = await query;
       // A ordenação principal (pending primeiro, depois cancelados do dia) será feita no cliente.
       // A ordenação secundária (por data) também será feita no cliente.
 
@@ -57,7 +61,7 @@ function AppointmentList({ user }) {
       setAppointments(fetchedAppointments);
     }
     setLoading(false);
-  }, [user]); // fetchAppointments agora depende de 'user'
+  }, [user]); // fetchAppointments agora depende apenas de 'user'
 
   useEffect(() => {
     if (user && user.id) {
@@ -113,7 +117,7 @@ function AppointmentList({ user }) {
         subscription.unsubscribe();
       }
     };
-  }, [user, fetchAppointments]); // Adiciona 'user' e 'fetchAppointments' como dependências
+  }, [user, fetchAppointments]); // Dependências ajustadas
 
   const handleCancelAppointment = async (appointmentId) => {
     const confirmed = window.confirm("Tem certeza que deseja cancelar este agendamento?");
@@ -144,21 +148,82 @@ function AppointmentList({ user }) {
     // O onAuthStateChange no App.js cuidará do redirecionamento para a tela de Login.
   };
 
+  const handleCancelSelectedAppointments = async () => {
+    if (selectedAppointments.length === 0) {
+      alert('Nenhum agendamento selecionado para cancelar.');
+      return;
+    }
+
+    const confirmed = window.confirm(`Tem certeza que deseja cancelar ${selectedAppointments.length} agendamento(s) selecionado(s)?`);
+    if (confirmed) {
+      const { error: updateError } = await supabase
+        .from('scheduled_messages')
+        .update({ status: 'cancelado' })
+        .in('id', selectedAppointments)
+        .eq('user_id', user.id) // Garante que só cancele os do usuário logado
+        .select();
+
+      if (updateError) {
+        alert('Erro ao cancelar agendamentos selecionados: ' + updateError.message);
+        //console.error('[handleCancelSelectedAppointments] Erro ao atualizar:', updateError);
+      } else {
+        alert(`${selectedAppointments.length} agendamento(s) cancelado(s) com sucesso!`);
+        setSelectedAppointments([]); // Limpa a seleção
+        fetchAppointments(); // Atualiza a lista
+      }
+    }
+  };
+
   if (loading) return <p>Carregando agendamentos...</p>;
   if (error) return <p>Erro ao carregar agendamentos: {error}</p>;
+
+  // Filtrar agendamentos no frontend
+  const filteredAppointments = appointments.filter(app =>
+    app.phone_number.includes(searchTerm)
+  );
 
   return (
     <div style={{ padding: '20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h2>Lista de Agendamentos</h2>
-        <button onClick={handleLogout} style={{ padding: '8px 15px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Sair</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <input
+            type="text"
+            placeholder="Filtrar por telefone..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }}
+          />
+          {selectedAppointments.length > 0 && (
+            <button
+              onClick={handleCancelSelectedAppointments}
+              style={{ padding: '8px 15px', backgroundColor: '#ffc107', color: 'black', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+            >
+              Cancelar Selecionados ({selectedAppointments.length})
+            </button>
+          )}
+          <button onClick={handleLogout} style={{ padding: '8px 15px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Sair</button>
+        </div>
       </div>
-      {appointments.length === 0 ? (
+      {filteredAppointments.length === 0 ? (
         <p>Nenhum agendamento encontrado.</p>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #ddd' }}>
           <thead>
             <tr style={{ backgroundColor: '#f2f2f2' }}>
+              <th style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'center' }}>
+                <input
+                  type="checkbox"
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedAppointments(filteredAppointments.filter(app => app.status !== 'cancelado').map(app => app.id));
+                    } else {
+                      setSelectedAppointments([]);
+                    }
+                  }}
+                  checked={selectedAppointments.length === filteredAppointments.filter(app => app.status !== 'cancelado').length && filteredAppointments.filter(app => app.status !== 'cancelado').length > 0}
+                />
+              </th>
               <th style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'left' }}>Telefone</th>
               <th style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'left' }}>Mensagem</th>
               <th style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'left' }}>Agendado Para</th>
@@ -167,8 +232,23 @@ function AppointmentList({ user }) {
             </tr>
           </thead>
           <tbody>
-            {appointments.map((app) => (
+            {filteredAppointments.map((app) => (
               <tr key={app.id}>
+                <td style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'center' }}>
+                  {app.status !== 'cancelado' && (
+                    <input
+                      type="checkbox"
+                      checked={selectedAppointments.includes(app.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedAppointments([...selectedAppointments, app.id]);
+                        } else {
+                          setSelectedAppointments(selectedAppointments.filter((id) => id !== app.id));
+                        }
+                      }}
+                    />
+                  )}
+                </td>
                 <td style={{ border: '1px solid #ddd', padding: '8px' }}>{app.phone_number}</td>
                 <td style={{ border: '1px solid #ddd', padding: '8px' }}>{app.message_text}</td>
                 <td style={{ border: '1px solid #ddd', padding: '8px' }}>{new Date(new Date(app.scheduled_for).setHours(new Date(app.scheduled_for).getHours() + 3)).toLocaleString('pt-BR')}</td>
